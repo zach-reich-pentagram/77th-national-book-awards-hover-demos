@@ -1,0 +1,1462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>77th National Book Awards — interaction demo</title>
+<!--
+  ============================================================================
+  WHAT THIS IS
+  A working model of three header behaviours, two "Get this book" behaviours,
+  and the riffle, so they can be tried rather than described. One file; open it
+  in a browser, nothing to install.
+
+  THE RIFFLE IS PORTED FROM THE STUDIO, NOT APPROXIMATED. Everything that
+  decides how a deck looks is read out of
+  77th-national-book-awards-riffle-tool/src/app.js, so a setting means the same
+  thing here as it does there:
+
+    cumulative()    Σ spacing·cutoff^i — the studio's falloff, verbatim
+    tracking        thousandths of an em, which is what TTF.layoutLine is handed
+    weight fade     heavy-centre: heaviest at the middle, out to Thin, with
+                    maxWeight held at Regular as the preset has it
+    the card        EVERY copy sits on an opaque card, the centre one included.
+                    cardColour() returns the backdrop for text, and this is what
+                    makes a riffled word read as a word with slivers along its
+                    edges rather than as a smear
+    the pivot       centre + (pivot/100)·half, which in transform-origin terms
+                    is 50% + pivot/200
+  ============================================================================
+-->
+<style>
+/*@FONTS@*/
+
+:root {
+  /* the page */
+  --burgundy: #3D0713;
+  --ink: #ffffff;
+  --page-bg: #000000;
+
+  --font-display: "Ergon", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-text: "Basel Classic Book", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* the controls write to these */
+  --open-ms: 260ms;
+  --close-ms: 180ms;
+  --fade-ms: 220ms;
+  --stagger-ms: 40ms;
+  --ease: cubic-bezier(.33, 0, .67, 1);
+  --ease-size: cubic-bezier(.33, 0, .67, 1);
+  --dim: 0.45;
+  --stack-gap: 12px;
+
+  /* the studio's own UI palette */
+  --ui-ink: #000;
+  --ui-paper: #fff;
+  --ui-muted: #b3b3b3;
+  --ui-hair: #000;
+  --ui: 13px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: var(--ui);
+  font-weight: 400;
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+::selection { background: #000; color: #fff; }
+
+.app { display: flex; height: 100%; }
+
+/* ==========================================================================
+   THE PAGE IS THE WHOLE SCREEN. The controls are a drawer that slides in over
+   it from the left, opened by the "?" in the bottom corner — so what a client
+   sees first is the site, not the instrument that drives it. The rail is
+   translated rather than hidden so it keeps its layout and its scroll
+   position, and it is inert to the pointer while it is away.
+   ========================================================================== */
+.rail {
+  position: fixed; left: 0; top: 0; bottom: 0; z-index: 200;
+  background: #fff;
+  box-shadow: 2px 0 22px rgba(0,0,0,.22);
+  transform: translateX(-100%);
+  transition: transform 260ms cubic-bezier(.33, 0, .67, 1);
+  visibility: hidden;
+}
+.show-ui .rail { transform: none; visibility: visible; }
+
+/* the toggle. Small, out of the way, and legible on either ground. */
+.uibtn {
+  position: fixed; left: 16px; bottom: 16px; z-index: 300;
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.28); background: #fff; color: #000;
+  font: 600 15px/1 system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  cursor: pointer; display: grid; place-items: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,.22);
+  transition: transform 260ms cubic-bezier(.33, 0, .67, 1);
+}
+.show-ui .uibtn { transform: translateX(292px); }
+.uibtn:hover { background: #f1f1f1; }
+
+/* ==========================================================================
+   THE CONTROL RAIL — the studio's own furniture
+   Black hairlines rather than grey, 14px panels, a 19px badge, segments
+   divided by a rule, an 11px thumb on a 1px track.
+   ========================================================================== */
+.rail {
+  width: 292px; flex: 0 0 292px;
+  border-right: 1px solid var(--ui-hair);
+  overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rail > .note { margin-bottom: 2px; }
+
+.panel {
+  border: 1px solid var(--ui-hair); border-radius: 14px; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.phead { display: flex; align-items: center; gap: 8px; }
+.badge {
+  width: 19px; height: 19px; min-width: 19px; border-radius: 50%;
+  border: 1px solid var(--ui-hair);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--ui-ink); color: var(--ui-paper);
+}
+.note { color: #7a7a7a; }
+
+.seg { display: flex; border: 1px solid var(--ui-hair); border-radius: 999px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: var(--ui-paper); padding: 6px 8px; cursor: pointer; white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--ui-hair); }
+.seg button.on { background: var(--ui-ink); color: var(--ui-paper); }
+
+.btn { border: 1px solid var(--ui-hair); background: var(--ui-paper); border-radius: 999px; padding: 6px 14px; cursor: pointer; text-align: center; }
+.btn:hover { background: var(--ui-ink); color: var(--ui-paper); }
+
+.row { display: flex; flex-direction: column; gap: 5px; }
+.rowhead { display: flex; justify-content: space-between; gap: 8px; }
+.rowhead .val { font-variant-numeric: tabular-nums; }
+.grouphead { border-top: 1px solid var(--ui-hair); padding-top: 8px; }
+
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; background: transparent; height: 14px; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--ui-ink); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--ui-ink); border: 1px solid var(--ui-ink); margin-top: -5px; }
+input[type=range]::-moz-range-track { height: 1px; background: var(--ui-ink); }
+input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--ui-ink); border: 1px solid var(--ui-ink); }
+
+.hidden { display: none !important; }
+
+/* ==========================================================================
+   THE STAGE
+   ========================================================================== */
+/* NO PADDING ABOVE. The band sticks to the top of this scrollport, so any
+   padding here is a strip the page scrolls through above the header — which
+   is the content showing over the top of the burgundy. The side and bottom
+   margins stay; only the top one has to go. */
+/* overflow-anchor: none — THE BAND CHANGES HEIGHT ON PURPOSE, so the browser
+   must not try to hold the scroll still against it. Scroll anchoring adjusts
+   scrollTop to compensate for a box above the viewport changing size, and it
+   does that a frame behind the transition: the band eases to its new height
+   and the scroll catches up afterwards, which reads as a small snap right at
+   the end of the retraction. Off, the band simply changes height and the page
+   below moves with it, over the same transition. */
+/* FULL SCREEN. No mount, no margin and no shadow — the page is the window. */
+.stage {
+  flex: 1 1 auto; min-width: 0; overflow: auto; overflow-anchor: none;
+  background: var(--page-bg); padding: 0;
+}
+.page {
+  background: var(--page-bg); color: var(--ink);
+  min-height: 100%; margin: 0;
+  position: relative;
+}
+
+/* ---- the burgundy band ------------------------------------------------
+   STICKY RATHER THAN FIXED, and the difference matters here. The stage is the
+   scroll container, so the band has something to stick within — and it keeps
+   its place in the flow, which is what lets it grow and shrink without the
+   page jumping. Fixed would take it out of the flow and everything below would
+   slide up by the band's whole height the moment it was applied. */
+.band {
+  position: sticky; top: 0; z-index: 40;
+  background: var(--burgundy);
+  padding: 24px 0 20px;
+}
+.band .laurel { position: absolute; left: 7.2%; top: 19px; width: 30px; line-height: 0; }
+.band .laurel img, .band .laurel svg { display: block; width: 100%; height: auto; }
+.band .laurel svg { fill: #F01115; }
+
+.menus { display: flex; flex-direction: column; align-items: center; position: relative; }
+
+.level { display: flex; justify-content: center; gap: 72px; list-style: none; }
+.level a {
+  color: var(--ink); text-decoration: none;
+  font-family: var(--font-text); font-size: 16px;
+  letter-spacing: 0.01em; text-transform: uppercase;
+  white-space: nowrap; display: inline-block;
+}
+
+.level--top { transition: opacity var(--fade-ms) var(--ease); }
+.is-sub .level--top { opacity: var(--dim); }
+
+/* OUT OF THE FLOW IN EVERY MODE, not per-mode as it was. While this rule was
+   only applied by the mode rules there was a state — before a mode class is
+   on, and on any path that cleared one — where the second row counted towards
+   the band's height directly, which is a change no transition can smooth. */
+.level--sub {
+  position: absolute; left: 0; right: 0;
+  margin-top: 0;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--fade-ms) var(--ease);
+}
+.is-sub .level--sub { opacity: 1; pointer-events: auto; }
+.level--sub:not(.on) { display: none; }
+
+.level--sub li {
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity var(--fade-ms) var(--ease), transform var(--fade-ms) var(--ease);
+  transition-delay: calc(var(--i) * var(--stagger-ms));
+}
+.is-sub .level--sub li { opacity: 1; transform: none; }
+
+/* ROW — the band grows for the second line and shrinks back.
+   THE SUB IS TAKEN OUT OF THE FLOW HERE TOO, which is the part that was
+   wrong: left in it, the row it occupies is part of the band whether it is
+   showing or not, so the burgundy was already the taller size with nothing in
+   it and opening the menu grew it by less than a pixel. Out of the flow, the
+   band's height is whatever min-height says, and min-height is the only thing
+   that moves — from the top level's own height to that plus the second row. */
+.mode-row .level--sub { justify-content: center; }
+
+/* REPLACE — THE BAND STAYS THE SIZE IT WAS. The categories take the top
+   level's place rather than arriving beneath it, so the top level is faded out
+   but keeps its space and the sub is laid over it. Nothing is added to the
+   band's height, which is the whole point of this mode. */
+.mode-replace.is-sub .level--top { opacity: 0; pointer-events: none; }
+.mode-replace .level--sub { top: 0; }
+
+/* STACK — hung off the parent item, and the band grows for it. */
+.mode-stack .level--sub {
+  flex-direction: column; align-items: flex-start;
+  right: auto; gap: var(--stack-gap);
+}
+
+/* ONE TRANSITION, ON THE HEIGHT THIS CODE SETS, in every mode. Replace never
+   changes the number, so the rule costs it nothing. */
+.menus { transition: height var(--fade-ms) var(--ease-size); }
+
+.backarrow {
+  background: none; border: 0; padding: 0 10px 0 0; margin: 0;
+  color: var(--ink); cursor: pointer; font: inherit; font-size: 16px;
+  line-height: 1; display: none;
+}
+/* NO ARROW IN REPLACE. Moving off the header is what returns the main menu,
+   so a second way of saying the same thing is one control too many. The button
+   is still built — it costs nothing and the mode may want it back. */
+.backarrow { display: none; }
+
+/* ---- the page ---------------------------------------------------------- */
+.content { padding: 54px 7.2% 100px; }
+
+.category {
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 400;                  /* Ergon REGULAR — the preset's maxWeight */
+  font-size: 40px; line-height: 0.88;
+  text-transform: uppercase;
+  margin: 0 0 58px;
+}
+
+/* "Winner" and "Finalists" are the mockup's own call rather than the site's
+   heading role: sentence case, on the left margin, in the text face. */
+.rank { font-family: var(--font-text); font-weight: 400; font-size: 30px; line-height: 1; margin: 0 0 40px; }
+.finalists-head { margin-top: 96px; }
+
+.book { display: flex; align-items: flex-start; }
+.coverwrap {
+  position: relative; flex: 0 0 auto; width: var(--cover-w);
+  transition: width var(--open-ms) var(--ease);
+}
+.book.open .coverwrap { width: calc(var(--cover-w) + var(--reach, 0px)); }
+.book.closing .coverwrap { transition-duration: var(--close-ms); }
+
+/* The deck is clipped to the cover's own box extended right: a leaf's far
+   corners swing well outside it and the mockup shows none of that. */
+/* A deck dealing DOWNWARD needs its clip box taller than the cover by the
+   fan's own travel, or the slivers are cut off at the base and the row reads
+   as a plain grey block. --drop is measured in poseOne from the same geometry
+   that draws them, so the two cannot disagree. */
+.deck { transition: height var(--open-ms) var(--ease); }
+.book--down .deck { height: calc(var(--cover-w) * 1.5 + var(--drop, 0px)); }
+
+/* isolation: isolate is what keeps the deck's own ordering inside the deck.
+   The cover carries z-index 100 and its leaves 100-i, which say which LEAF is
+   in front of which leaf — a private matter. Without a stacking context here
+   those numbers go into the nearest one the page provides, which is the root,
+   and the cover ends up measured against the burgundy band's 40 and drawn over
+   the top of it. Same leak as the riffled photographs on the live site. */
+.deck {
+  position: relative; width: 100%; height: calc(var(--cover-w) * 1.5);
+  overflow: hidden; isolation: isolate;
+}
+/* THE COVER IS THE COVER'S HEIGHT, not the deck's. On a resting book the deck
+   is taller than the cover by the fan's own travel — and at height: 100% the
+   cover grew with it and painted straight over the leaves it was making room
+   for, so the whole row came out as a plain grey block again. */
+.cover, .leaf {
+  position: absolute; left: 0; top: 0;
+  width: var(--cover-w); height: calc(var(--cover-w) * 1.5);
+  background: #8a8a8a; display: block;
+}
+/* THE GAP IS A RING, NOT AN EDGE. The studio cuts every copy against the
+   copies in front of it, each one outset by `gap` — so the space between two
+   cards is there on every edge they share, not just the one the fan is
+   revealed at. A one-sided border gave a clean gap down the right and a raw
+   staircase of bare corners along the top, which is the seam that showed.
+   A spread-only box-shadow is the same thing said in CSS: each copy paints a
+   gap-wide ring of page colour around itself, and the copy in front is painted
+   over the copy behind, so the ring cuts exactly what the studio cuts. */
+.cover, .leaf {
+  box-shadow: 0 0 0 var(--leaf-gap, 3px) var(--page-bg);
+}
+.cover { z-index: 100; }
+.leaf { transition: transform var(--open-ms) var(--ease); }
+.book.closing .leaf { transition-duration: var(--close-ms); }
+
+.blurb { flex: 1 1 auto; min-width: 0; max-width: 34%; margin-left: 2.7%; font-family: var(--font-text); }
+.blurb p { margin: 0 0 6px; font-size: 14px; line-height: 1.5; font-family: var(--font-text); }
+.blurb .title { font-size: 24px; line-height: 1.1; margin-bottom: 12px; }
+.blurb .pub { color: #9a9a9a; }
+.blurb .bio { margin: 26px 0 0; }
+.blurb a { color: inherit; }
+
+/* THE ROW GAP IS IN PIXELS. A percentage row-gap on an auto-height grid
+   resolves against the grid's own height, so the gap grew whenever anything
+   inside the grid did — opening one book's shop list pushed the next row down
+   by the list's height AND by a few pixels of extra gap it had no reason to
+   gain. That is the space appearing above the images below. */
+.finalists { display: grid; grid-template-columns: 1fr 1fr; gap: 60px 2.1%; }
+.finalists .book { --cover-w: var(--fin-cover-w); }
+.finalists .blurb { max-width: none; margin-left: 4%; }
+.finalists .title { font-size: 20px; }
+
+/* The longlist is the same row with the biography taken out — cover, title,
+   author, publisher, and the link. */
+.longlist { display: grid; grid-template-columns: 1fr 1fr; gap: 50px 2.1%; }
+.longlist .book { --cover-w: var(--fin-cover-w); }
+.longlist .blurb { max-width: none; margin-left: 4%; }
+.longlist .title { font-size: 20px; }
+.longlist .getwrap { margin-top: 18px; }
+
+/* The judges: a riffled heading, centred, and a row of portraits. */
+.judges-head { text-align: center; margin: 110px 0 46px; }
+.judges { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2.1%; }
+.judge img, .judge .plate {
+  display: block; width: 100%; aspect-ratio: 2 / 3; background: #8a8a8a;
+}
+.judge p { font-family: var(--font-text); font-size: 14px; line-height: 1.5; margin: 14px 0 0; }
+.judge p + p { margin-top: 0; }
+
+.getwrap { margin-top: 30px; position: relative; }
+.getbtn {
+  background: none; border: 0; padding: 0; margin: 0; color: var(--ink);
+  font: inherit; font-size: 14px; font-family: var(--font-text);
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+  transition: opacity var(--fade-ms) var(--ease);
+}
+.getwrap.is-open .getbtn { opacity: var(--dim); }
+.get-mode-click .getwrap.is-open .getbtn { display: none; }
+
+/* THE SHOPS OPEN ON A TRANSITIONED HEIGHT, NOT ON display.
+   `display: none` to `block` adds the whole list's height in one frame, which
+   is the abrupt shove. The list now sits absolutely inside a box whose height
+   this script animates, so the room arrives over the same duration as the
+   burgundy band's — and because the box never clips, the riffle decks on the
+   shop links are still free to open sideways out of it. */
+.shopsbox {
+  position: relative; height: 0;
+  transition: height var(--fade-ms) var(--ease-size);
+}
+.shops {
+  list-style: none; position: absolute; left: 0; right: 0; top: 14px;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--fade-ms) var(--ease);
+}
+.getwrap.is-open .shops { opacity: 1; pointer-events: auto; }
+.shops li {
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity var(--fade-ms) var(--ease), transform var(--fade-ms) var(--ease);
+  transition-delay: calc(var(--i) * var(--stagger-ms));
+  margin-bottom: 8px; font-family: var(--font-text); font-size: 14px;
+}
+.getwrap.is-open .shops li { opacity: 1; transform: none; }
+.shops a { color: var(--ink); text-decoration: none; }
+.shops a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.shopback {
+  background: none; border: 0; padding: 0 0 10px; margin: 0; color: var(--ink);
+  font: inherit; font-size: 14px; cursor: pointer; display: none;
+}
+.get-mode-click .getwrap.is-open .shopback { display: block; }
+
+/* ---- the riffled type -------------------------------------------------
+   EVERY COPY IS ON A CARD, THE CENTRE ONE INCLUDED. That is the mechanism and
+   it is what was missing: the centre had no card, so the copies behind it
+   showed through the gaps between its letters and an open word came out as a
+   smear. cardColour() in the studio returns the backdrop for text, for exactly
+   this reason.
+
+   The padding is the studio's `gap` — the clearance a copy cuts out of the one
+   behind it — and the negative margin cancels it, so the card is wider than
+   the ink while the layout box is not. */
+/* The box grows by whatever the deck reaches past its own word, which is what
+   pushes the neighbouring menu items aside instead of the riffle being drawn
+   over them. Measured at the shipped settings the deck reaches 81px each way
+   into a 72px gap, so without this the slivers of HONOREES land on CEREMONY.
+   Equal padding on both sides keeps the hovered word still and moves only its
+   neighbours. */
+/* isolation: isolate for the same reason the deck needs it. The core carries
+   z-index 50, which says it is in front of its own copies — private to the
+   deck. Without a stacking context here that 50 goes into the root and gets
+   measured against the burgundy band's 40, so a riffled heading painted over
+   the header as the page scrolled under it. */
+.rfl {
+  position: relative; display: inline-block; white-space: pre;
+  isolation: isolate;
+  transition: padding var(--open-ms) var(--ease);
+}
+/* STACKED, THE ITEMS STAY ON THEIR LEFT EDGE. A centred word grows both ways
+   and the column's left edge moves with it; growing only to the right keeps
+   the stack aligned under Honorees, which is the whole point of that mode. */
+.mode-stack .level--sub .rfl { padding-left: 0 !important; }
+/* THE CARD HAS TO COVER THE INK VERTICALLY AS WELL, and this is what the
+   white flecks under the riffled heading were. The category is set at
+   line-height 0.88 — shorter than the type — so the ink overflows its own line
+   box top and bottom. A card only as tall as the line box therefore fails to
+   hide the copy behind it at the extremities, and the bits that show through
+   are those overshoots: a scatter of white ticks along the baseline.
+
+   0.22em of padding either way covers the overshoot at any size, and the
+   matching negative margin keeps the layout box exactly the line box, so
+   nothing moves. */
+/* THE VERTICAL PADDING IS ONLY FOR THE TIGHT HEADINGS, and that is the whole
+   of it. The category is set at line-height 0.88 — shorter than the type — so
+   its ink overflows its own line box and a card only as tall as that box lets
+   the copy behind show through at the extremities. A menu item is set at the
+   normal leading, its ink fits, and the padding there did nothing but make
+   every item 7px taller than its text: the space above and below the words. */
+.rfl .card {
+  display: inline-block; white-space: pre;
+  background: var(--paper, var(--burgundy));
+  padding: 0 var(--gap, 3px);
+  margin: 0 calc(-1 * var(--gap, 3px));
+}
+.rfl--tight .card {
+  padding-block: 0.22em;
+  margin-block: -0.22em;
+}
+.rfl .core { position: relative; z-index: 50; }
+/* box-sizing: content-box because the copies are given an explicit width equal
+   to the core's TEXT box, and the card's padding must sit outside it — with
+   border-box the padding would eat into the width and every copy would come
+   out a gap narrower than the word it is a copy of. */
+.rfl .copy {
+  position: absolute; left: 0; top: 0;
+  box-sizing: content-box;
+  pointer-events: none;
+  transition: transform var(--open-ms) var(--ease);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside class="rail" id="rail">
+  <section class="panel">
+    <div class="phead"><span class="badge">1</span><span>Header menu</span></div>
+    <div class="seg" id="headerMode">
+      <button data-v="row" class="on">Row</button>
+      <button data-v="stack">Stack</button>
+      <button data-v="replace">Replace</button>
+    </div>
+    <div class="note" id="headerHelp"></div>
+    <div class="row hidden" id="stackOnly">
+      <div class="rowhead"><span>Space between items</span><span class="val" id="vStackGap">12px</span></div>
+      <input type="range" id="inStackGap" min="0" max="40" step="1" value="12">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Top level fades to</span><span class="val" id="vDim">45%</span></div>
+      <input type="range" id="inDim" min="0" max="100" step="5" value="45">
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><span class="badge">2</span><span>Get this book</span></div>
+    <div class="seg" id="getMode">
+      <button data-v="hover" class="on">Hover</button>
+      <button data-v="click">Click</button>
+    </div>
+    <div class="note" id="getHelp"></div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><span class="badge">3</span><span>Type, held open</span></div>
+    <div class="note">The category and the judges heading. Always riffled.</div>
+    <div class="row">
+      <div class="rowhead"><span>Depth of riffle</span><span class="val" id="vHCount">6</span></div>
+      <input type="range" id="inHCount" min="1" max="24" step="1" value="6">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Spacing</span><span class="val" id="vHSpacing">64.5px</span></div>
+      <input type="range" id="inHSpacing" min="1" max="300" step="0.5" value="64.5">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Progressive cutoff</span><span class="val" id="vHCut">0.945</span></div>
+      <input type="range" id="inHCut" min="0.7" max="1.05" step="0.005" value="0.945">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Gap between copies</span><span class="val" id="vHGap">30px</span></div>
+      <input type="range" id="inHGap" min="0" max="120" step="0.5" value="30">
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><span class="badge">4</span><span>Type, on hover</span></div>
+    <div class="note">The menu, the categories and the shop links &mdash; whatever the cursor is on.</div>
+    <div class="row">
+      <div class="rowhead"><span>Depth of riffle</span><span class="val" id="vTCount">6</span></div>
+      <input type="range" id="inTCount" min="1" max="24" step="1" value="6">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Spacing</span><span class="val" id="vTSpacing">64.5px</span></div>
+      <input type="range" id="inTSpacing" min="1" max="300" step="0.5" value="64.5">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Progressive cutoff</span><span class="val" id="vTCut">0.945</span></div>
+      <input type="range" id="inTCut" min="0.7" max="1.05" step="0.005" value="0.945">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Gap between copies</span><span class="val" id="vTGap">30px</span></div>
+      <input type="range" id="inTGap" min="0" max="120" step="0.5" value="30">
+    </div>
+    <div class="row grouphead">
+      <div class="rowhead"><span>Tracking</span><span class="val" id="vTrack">-20</span></div>
+      <input type="range" id="inTrack" min="-80" max="80" step="1" value="-20">
+    </div>
+    <div class="seg" id="tSides"><button data-v="both" class="on">Both sides</button><button data-v="one">One side</button></div>
+    <div class="seg" id="tWeight"><button data-v="heavy-centre" class="on">Regular &rarr; Thin</button><button data-v="one">One weight</button></div>
+    <div class="note">Tracking, sides and weight are shared by both. Spacing and gap are pixels at the studio's 166px type and are scaled to whatever each element is set at.</div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><span class="badge">5</span><span>The books</span></div>
+    <div class="note">The studio's Page fan: copies swinging open from a pivot inside the cover.</div>
+    <div class="row">
+      <div class="rowhead"><span>Depth of riffle</span><span class="val" id="vCount">10</span></div>
+      <input type="range" id="inCount" min="1" max="40" step="1" value="10">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Spacing</span><span class="val" id="vSpacing">14.5px</span></div>
+      <input type="range" id="inSpacing" min="1" max="300" step="0.5" value="14.5">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Progressive cutoff</span><span class="val" id="vCut">0.910</span></div>
+      <input type="range" id="inCut" min="0.7" max="1.05" step="0.005" value="0.91">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Gap between copies</span><span class="val" id="vGap">3px</span></div>
+      <input type="range" id="inGap" min="0" max="60" step="0.5" value="3">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Progressive rotation</span><span class="val" id="vRot">2.5&deg;</span></div>
+      <input type="range" id="inRot" min="-20" max="20" step="0.1" value="2.5">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Rotation pivot, across</span><span class="val" id="vPivX">30%</span></div>
+      <input type="range" id="inPivX" min="-250" max="250" step="1" value="30">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Rotation pivot, down</span><span class="val" id="vPivY">-11%</span></div>
+      <input type="range" id="inPivY" min="-300" max="300" step="1" value="-11">
+    </div>
+    <div class="row grouphead">
+      <div class="rowhead"><span>Dealt-down books, at rest</span><span class="val" id="vRest">30%</span></div>
+      <input type="range" id="inRest" min="0" max="100" step="1" value="30">
+    </div>
+    <div class="note" id="reachOut"></div>
+  </section>
+
+  <section class="panel">
+    <div class="phead"><span class="badge">6</span><span>Motion</span></div>
+    <div class="row">
+      <div class="rowhead"><span>Opening</span><span class="val" id="vOpen">260ms</span></div>
+      <input type="range" id="inOpen" min="0" max="1200" step="20" value="300">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Closing</span><span class="val" id="vClose">180ms</span></div>
+      <input type="range" id="inClose" min="0" max="1200" step="20" value="260">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Fading</span><span class="val" id="vFade">220ms</span></div>
+      <input type="range" id="inFade" min="0" max="1200" step="20" value="220">
+    </div>
+    <div class="row">
+      <div class="rowhead"><span>Between items</span><span class="val" id="vStagger">40ms</span></div>
+      <input type="range" id="inStagger" min="0" max="200" step="5" value="40">
+    </div>
+    <div class="seg" id="easeMode">
+      <button data-v="ease">Eased</button><button data-v="linear">Even</button><button data-v="over" class="on">Overshoot</button>
+    </div>
+  </section>
+
+  <button class="btn" id="reset">Reset</button>
+</aside>
+
+<button class="uibtn" id="uibtn" aria-expanded="false"
+        aria-controls="rail" title="Show the controls">?</button>
+
+<main class="stage" id="stage">
+  <div class="page mode-row get-mode-hover" id="page">
+
+    <div class="band" id="band">
+      <a class="laurel" href="#" aria-label="77th National Book Awards">
+        <img id="laurelImg" src="https://www.nationalbook.org/wp-content/themes/nationalbook/assets-awards2026/nav/laurel.svg" alt="">
+        <svg id="laurelFallback" viewBox="0 0 64 64" aria-hidden="true" style="display:none"><path d="M32 2c-4 7-4 12-2 17-4-3-9-4-14-3 3 5 7 8 12 10-5 1-9 4-12 8 5 2 10 2 15 0-3 4-4 9-3 14 5-2 8-6 10-11 2 5 5 9 10 11 1-5 0-10-3-14 5 2 10 2 15 0-3-4-7-7-12-8 5-2 9-5 12-10-5-1-10 0-14 3 2-5 2-10-2-17-4 5-6 9-6 14 0-5-2-9-6-14z"/></svg>
+      </a>
+      <div class="menus" id="menus">
+        <ul class="level level--top" id="topLevel">
+          <li><a href="#" data-word="Ceremony">Ceremony</a></li>
+          <li><a href="#" data-word="Honorees" data-sub="1">Honorees</a></li>
+          <li><a href="#" data-word="Lifetime Achievement">Lifetime Achievement</a></li>
+          <li><a href="#" data-word="Support">Support</a></li>
+        </ul>
+        <ul class="level level--sub" id="subLevel"></ul>
+      </div>
+    </div>
+
+    <div class="content">
+      <h2 class="category" id="category">Fiction</h2>
+      <h3 class="rank">Winner</h3>
+
+      <div class="book">
+        <div class="coverwrap"><div class="deck"><div class="cover"></div></div></div>
+        <div class="blurb">
+          <p class="title">Book Title</p>
+          <p>TKTK</p>
+          <p class="pub">Publisher A / Publisher B</p>
+          <p class="bio">In a tiny Beirut apartment, 63-year-old Raja and his mother live side by side. A beloved high school philosophy teacher and &ldquo;the neighborhood homosexual,&rdquo; Raja relishes books, meditative walks, order, and solitude. Zalfa, his octogenarian mother, views her son&rsquo;s desire for privacy as a personal affront. She demands to know every detail of Raja&rsquo;s work life and love life, boundaries be damned. When Raja receives an invite to an all-expenses-paid writing residency in America, the timing&hellip; <a href="#">Read more</a></p>
+          <div class="getwrap">
+            <button class="shopback">&larr;</button>
+            <button class="getbtn">Get this book</button>
+            <div class="shopsbox"><ul class="shops"></ul></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="rank finalists-head">Finalists</h3>
+      <div class="finalists" id="finalists"></div>
+
+      <h3 class="rank finalists-head">Longlist</h3>
+      <div class="longlist" id="longlist"></div>
+
+      <h2 class="category judges-head" id="judgesHead">Judges</h2>
+      <div class="judges" id="judges"></div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var CATS = ["Young People's Literature", "Translated Literature", "Poetry", "Nonfiction", "Fiction"];
+  var SHOPS = ["Bookshop", "Amazon", "Apple Books", "Barnes & Noble", "Local Library"];
+  var EASES = { ease: 'cubic-bezier(.33, 0, .67, 1)', linear: 'linear', over: 'cubic-bezier(.34, 1.56, .64, 1)' };
+
+  /* AN OVERSHOOT IS FOR THINGS THAT MOVE, NOT FOR ROOM. Overshoot is a back
+     curve: it carries the value past its target and settles back. On a leaf's
+     transform that reads as life. On the height of the burgundy band it reads
+     as a fault — closing, the band goes PAST its shut height, then comes back
+     down to it, which is the "snaps back up, then snaps down a bit". Same for
+     the shop list's box. Those two are given the eased curve instead, so the
+     Overshoot setting keeps its character everywhere it belongs. */
+  var SIZE_EASES = { ease: EASES.ease, linear: 'linear', over: 'cubic-bezier(.22, 1, .36, 1)' };
+
+  /* The studio's weight table, and the CSS weights its four cuts answer to. */
+  var WEIGHTS = [250, 300, 400, 500];      /* Thin, Light, Regular, Medium */
+  var MAX_WEIGHT = 2;                      /* the preset's maxWeight: 'regular' */
+
+  var DEFAULTS = {
+    headerMode: 'row', getMode: 'hover', easeMode: 'over',
+    stackGap: 12, dim: 45,
+    tSides: 'both', tWeight: 'heavy-centre', track: -20,
+    /* HELD OPEN — the category and the judges heading */
+    hCount: 6, hSpacing: 64.5, hCut: 0.945, hGap: 30,
+    /* ON HOVER — the menu, the categories, the shop links */
+    tCount: 6, tSpacing: 64.5, tCut: 0.945, tGap: 30,
+    count: 10, spacing: 14.5, cut: 0.91, gap: 3, rot: 2.5, pivX: 30, pivY: -11, rest: 30,
+    open: 300, close: 260, fade: 220, stagger: 40
+  };
+  var S = Object.assign({}, DEFAULTS);
+
+  var page = $('page'), band = $('band'), menus = $('menus');
+  var topLevel = $('topLevel'), subLevel = $('subLevel'), cat = $('category');
+  var books = [], getwraps = [];
+
+  var laurel = $('laurelImg');
+  laurel.addEventListener('error', function () {
+    laurel.style.display = 'none'; $('laurelFallback').style.display = 'block';
+  });
+
+  /* THE STUDIO'S SPACING IS PIXELS AT ITS OWN 166px TYPE, so it has to be
+     scaled to whatever the element is actually set at — otherwise one number
+     cannot serve a 40px heading and a 16px menu item at once, and the menu's
+     deck reached 81px each way out of a 16px word, which is what "going too
+     far to each side" was. Scaled: the category steps 15.5px and the menu
+     6.2px, both the same fraction of their own type. */
+  var STUDIO_TYPE = 166;
+  /* BOTH SPACING AND GAP ARE PIXELS AT THE STUDIO'S OWN 166px TYPE, so both
+     have to be scaled to what the element is actually set at. Scaling only the
+     spacing was the bug that made the menu's riffle vanish: at 16px the step
+     came out 6.22px while the card still carried a 7px gap either side, so
+     every copy was completely covered by the one in front and the sliver was
+     -0.78px wide. Scaled together they hold their proportion: the studio's
+     64.5 and 30 give a sliver 21% of the type at any size. */
+  function scaled(el, v) {
+    var fs = parseFloat(getComputedStyle(el).fontSize) || 16;
+    return v * fs / STUDIO_TYPE;
+  }
+  /* AND THE SAME THING FOR THE COVERS. The studio scales an image so its
+     longest side is artSize, 420 by default, so a 2:3 book cover there is
+     280px wide — and the Page fan's 14.5px step and 3px gap are pixels at
+     that width, exactly as the text preset's are pixels at 166px type. */
+  var STUDIO_COVER_W = 420 / 1.5;
+  /* which set of numbers a given deck is on */
+  function G(box) {
+    return box.dataset.grp === 'h'
+      ? { count: S.hCount, spacing: S.hSpacing, cut: S.hCut, gap: S.hGap }
+      : { count: S.tCount, spacing: S.tSpacing, cut: S.tCut, gap: S.tGap };
+  }
+
+  /* The studio's falloff, verbatim: Σ step·falloff^i for i < x */
+  function cumulative(x, step, falloff) {
+    var n = Math.floor(x), frac = x - n, sum = 0, f = 1;
+    for (var i = 0; i < n; i++) { sum += step * f; f *= falloff; }
+    return sum + frac * step * f;
+  }
+
+  /* heavy-centre: heaviest at the middle, out to Thin, with maxWeight held at
+     Regular — the studio's weightForDistance. */
+  function weightFor(d, maxD) {
+    if (S.tWeight !== 'heavy-centre') return WEIGHTS[MAX_WEIGHT];
+    var t = maxD > 0 ? Math.min(1, Math.abs(d) / maxD) : 0;
+    return WEIGHTS[Math.round(MAX_WEIGHT - t * MAX_WEIGHT)];
+  }
+
+  /* ======================================================================
+     THE MENUS
+     ====================================================================== */
+  var backBtn = document.createElement('button');
+  backBtn.className = 'backarrow';
+  backBtn.innerHTML = '&larr;';
+  backBtn.setAttribute('aria-label', 'Back to the main menu');
+
+  function fillSub() {
+    subLevel.textContent = '';
+    /* NO BACK-ARROW ITEM. It is not used in any mode now — every one of them
+       closes on leaving the header — and while its <li> was still in the list
+       it was a flex item with a 72px gap after it, which pushed the whole row
+       36px right of centre. That is the sub row not looking centred. */
+    CATS.forEach(function (c, i) {
+      var el = document.createElement('li');
+      el.style.setProperty('--i', i);
+      var a = document.createElement('a');
+      a.href = '#'; a.textContent = c; a.setAttribute('data-word', c);
+      el.appendChild(a); subLevel.appendChild(el);
+    });
+    subLevel.classList.add('on');
+  }
+
+  /* THE BAND'S HEIGHT IS STATED, NOT LEFT TO THE CONTENT.
+     It used to be a min-height that, shut, sat exactly ON the content height —
+     so closed, the band was as tall as whatever happened to be in it, and the
+     transition was on min-height, which governs nothing once the content is
+     the taller of the two. Anything that grew the row by a pixel therefore
+     grew the burgundy with no transition at all: an instant snap downward
+     after it had just eased shut. That is the fault being described.
+
+     Now `.menus` carries an explicit height in both states and the transition
+     is on that height, so the closed size is a number this code chose and no
+     amount of content can push it. `shutH` is measured once at rest and
+     re-measured on a resize or a font load — never while a deck is open under
+     the cursor, which would read the riffle's own height into it. */
+  var shutH = 0;
+
+  function measureShut() {
+    /* read it with the height released, and with nothing hovered */
+    var had = menus.style.height;
+    menus.style.height = '';
+    var open = page.classList.contains('is-sub');
+    page.classList.remove('is-sub');
+    shutH = topLevel.offsetHeight;
+    if (open) page.classList.add('is-sub');
+    menus.style.height = had;
+    return shutH;
+  }
+
+  function subRowHeight() {
+    /* the sub row is out of the flow in every mode, so its own box is the
+       only honest reading of how much room it wants */
+    return subLevel.scrollHeight || subLevel.offsetHeight;
+  }
+
+  function applyHeight() {
+    if (!shutH) measureShut();
+    var open = page.classList.contains('is-sub');
+    var h = shutH;
+    if (open && S.headerMode === 'row') h = shutH + 14 + subRowHeight();
+    else if (open && S.headerMode === 'stack') h = stackBottom();
+    /* replace adds nothing — that is the whole point of the mode */
+    menus.style.height = h + 'px';
+  }
+
+  var STACK_DROP = 12;              /* the gap under Honorees in stack mode */
+
+  function stackTop() {
+    var parent = topLevel.querySelector('[data-sub]');
+    if (!parent) return null;
+    var host = parent.closest('li');
+    var a = host.getBoundingClientRect(), b = menus.getBoundingClientRect();
+    return { top: a.bottom - b.top + STACK_DROP, left: a.left - b.left };
+  }
+  function stackBottom() {
+    var p = stackTop();
+    return p ? p.top + subRowHeight() : shutH;
+  }
+
+  function openSub() {
+    if (S.headerMode === 'stack') placeStack();
+    else if (S.headerMode === 'row') subLevel.style.top = (shutH || measureShut()) + 14 + 'px';
+    page.classList.add('is-sub');
+    applyHeight();
+  }
+  function closeSub() {
+    page.classList.remove('is-sub');
+    applyHeight();
+  }
+  function placeStack() {
+    var p = stackTop();
+    if (!p) return;
+    subLevel.style.left = p.left + 'px';
+    subLevel.style.top = p.top + 'px';
+  }
+
+  /* the window, and the webfont landing after first paint, both change what
+     the top level measures */
+  window.addEventListener('resize', function () {
+    measureShut(); applyHeight(); sizeAllShops();
+  });
+
+  /* HOVER, NOT CLICK. The closing is listened for on the whole band rather
+     than on the item, so travelling from Honorees down to the categories does
+     not cross a gap that would count as leaving. */
+  topLevel.addEventListener('mouseover', function (e) {
+    var a = e.target.closest && e.target.closest('a');
+    if (!a) return;
+    if (a.hasAttribute('data-sub')) openSub();
+    else closeSub();
+  });
+  /* EVERY MODE CLOSES ON LEAVING THE HEADER, replace included. It used to be
+     held open there and put away with an arrow, which is a second control for
+     something the pointer already says. */
+  band.addEventListener('mouseleave', closeSub);
+
+  /* THE POINTER IS THE TRUTH, NOT THE EVENT. mouseleave is the tidy way to
+     know the pointer has gone, and it is not reliable: it does not arrive if
+     the window loses focus with the pointer still over the menu, if the
+     pointer leaves the window quickly enough, or if anything is laid over the
+     band while it is open. Miss it once and the menu stays open with the
+     burgundy at its tall height and nothing to put it back — the band sitting
+     too far down with no categories under it.
+
+     So the band also closes on the geometry: any pointer move anywhere in the
+     document, while the menu is open, that is not actually inside the band's
+     box shuts it. Cheap, and it cannot be missed. The same for the window
+     losing focus or the tab going away, neither of which sends a mouseleave
+     at all. */
+  document.addEventListener('mousemove', function (e) {
+    if (!page.classList.contains('is-sub')) return;
+    var r = band.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right ||
+        e.clientY < r.top  || e.clientY > r.bottom) closeSub();
+  }, true);
+  window.addEventListener('blur', closeSub);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) closeSub();
+  });
+
+  /* and a last guard: when the band has finished any height transition, the
+     height it is left holding must be the one the current state asks for. If
+     a transition was interrupted, or a measurement was taken at a bad moment,
+     this puts it right rather than leaving it wrong. */
+  menus.addEventListener('transitionend', function (e) {
+    if (e.propertyName !== 'height' || e.target !== menus) return;
+    var want = menus.style.getPropertyValue('height');
+    applyHeight();
+    if (menus.style.getPropertyValue('height') !== want) {
+      /* it was wrong; it is right now and should not animate into place */
+      menus.style.transition = 'none';
+      void menus.offsetHeight;
+      menus.style.transition = '';
+    }
+  });
+  backBtn.addEventListener('click', function (e) { e.preventDefault(); closeSub(); });
+  document.addEventListener('click', function (e) {
+    if (S.headerMode !== 'replace') return;
+    if (!page.classList.contains('is-sub')) return;
+    if (menus.contains(e.target)) return;
+    closeSub();
+  });
+
+  /* ======================================================================
+     GET THIS BOOK
+     ====================================================================== */
+  function wireGet(wrap) {
+    var list = wrap.querySelector('.shops');
+    list.textContent = '';
+    SHOPS.forEach(function (s, i) {
+      var el = document.createElement('li');
+      el.style.setProperty('--i', i);
+      var a = document.createElement('a');
+      a.href = '#'; a.textContent = s;
+      a.setAttribute('data-word', s);      /* so it riffles like the menu */
+      el.appendChild(a); list.appendChild(el);
+    });
+    /* the shops are a menu too, so they get the same deck and the same hover.
+       Their paper is the page rather than the burgundy. */
+    riffleAll(list, false);
+    list.querySelectorAll('.rfl').forEach(function (b) {
+      b.style.setProperty('--paper', 'var(--page-bg)');
+    });
+    wireHover(list);
+    function set(open) {
+      wrap.classList.toggle('is-open', open);
+      sizeShops(wrap);
+    }
+    wrap.querySelector('.getbtn').addEventListener('click', function (e) {
+      e.preventDefault();
+      if (S.getMode === 'click') set(!wrap.classList.contains('is-open'));
+    });
+    wrap.querySelector('.shopback').addEventListener('click', function (e) {
+      e.preventDefault(); set(false);
+    });
+    wrap.addEventListener('mouseenter', function () {
+      if (S.getMode === 'hover') set(true);
+    });
+    wrap.addEventListener('mouseleave', function () {
+      if (S.getMode === 'hover') set(false);
+    });
+    getwraps.push(wrap);
+  }
+
+  /* THE ROOM THE SHOPS NEED, STATED. The list is absolutely placed inside the
+     box, so its own offsetHeight is what it wants whether the box is open or
+     shut — no measuring trick, no reflow of the page to read it. Same
+     transition as the band, off the same --fade-ms, so the header and this
+     always open and close together. */
+  var SHOP_GAP = 14;
+  function sizeShops(wrap) {
+    var box = wrap.querySelector('.shopsbox');
+    if (!box) return;
+    var list = box.querySelector('.shops');
+    box.style.height = wrap.classList.contains('is-open')
+      ? (list.offsetHeight + SHOP_GAP) + 'px'
+      : '0px';
+  }
+  function sizeAllShops() { getwraps.forEach(sizeShops); }
+
+  /* ======================================================================
+     THE BOOK — the studio's Page fan
+     ====================================================================== */
+  var BIO2 = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do ' +
+    'eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad ' +
+    'minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ' +
+    'ex ea commodo consequat. Duis aute irure dolor in reprehenderit in ' +
+    'voluptate velit esse cillum dolore eu fugiat nulla pariatur… ';
+
+  function bookRow(withBio) {
+    var row = document.createElement('div');
+    row.className = 'book';
+    row.innerHTML =
+      '<div class="coverwrap"><div class="deck"><div class="cover"></div></div></div>' +
+      '<div class="blurb"><p class="title">Book Title</p><p>TKTK</p>' +
+      '<p class="pub">Knopf / Penguin Random House</p>' +
+      (withBio ? '<p class="bio">' + BIO2 + '<a href="#">Read more</a></p>' : '') +
+      '<div class="getwrap"><button class="shopback">&larr;</button>' +
+      '<button class="getbtn">Get this book</button>' +
+      '<div class="shopsbox"><ul class="shops"></ul></div></div></div>';
+    return row;
+  }
+
+  function fillPage() {
+    var f = $('finalists'); f.textContent = '';
+    for (var i = 0; i < 4; i++) {
+      f.appendChild(bookRow(true));
+    }
+    var l = $('longlist'); l.textContent = '';
+    for (var j = 0; j < 5; j++) l.appendChild(bookRow(false));
+
+    var jd = $('judges'); jd.textContent = '';
+    for (var k = 0; k < 5; k++) {
+      var el = document.createElement('div');
+      el.className = 'judge';
+      el.innerHTML = '<div class="plate"></div><p>TKTK</p><p>Lorem Ipsum</p>';
+      jd.appendChild(el);
+    }
+  }
+
+  function collectBooks() {
+    books = [];
+    document.querySelectorAll('.book').forEach(function (b) {
+      var u = { book: b, wrap: b.querySelector('.coverwrap'), deck: b.querySelector('.deck'),
+                /* the winner deals across; every other book deals down */
+                dir: b.classList.contains('down') ? 'down' : 'across' };
+      if (u.dir === 'down') b.classList.add('book--down');
+      books.push(u);
+      /* the cover, not the row — the row holds the paragraph column too */
+      u.wrap.addEventListener('mouseenter', function () {
+        b.classList.remove('closing'); b.classList.add('open'); poseOne(u);
+      });
+      u.wrap.addEventListener('mouseleave', function () {
+        b.classList.add('closing'); b.classList.remove('open'); poseOne(u);
+      });
+    });
+  }
+
+  function buildDeck() {
+    books.forEach(function (u) {
+      u.deck.querySelectorAll('.leaf').forEach(function (l) { l.remove(); });
+      var cover = u.deck.querySelector('.cover');
+      for (var i = S.count; i >= 1; i--) {
+        var leaf = document.createElement('div');
+        leaf.className = 'leaf';
+        leaf.dataset.i = i;
+        leaf.style.zIndex = String(100 - i);
+        u.deck.insertBefore(leaf, cover);
+      }
+    });
+    poseDeck();
+  }
+
+  function poseOne(u) {
+    var open = u.book.classList.contains('open');
+    /* ONE PROGRAM FOR EVERY BOOK. Count, spacing, cutoff, gap, rotation and
+       both pivots are the same numbers on all ten — only the DIRECTION differs,
+       which is the studio's `angle`: the winner deals across, everything else
+       deals down, as the mockup has them.
+
+       And a book that deals down is already part-open at rest — that is the
+       stack of pages showing under each finalist — and opens the rest of the
+       way on hover. It does not change axis when touched, which is what was
+       wrong before: it rested down and then fanned sideways, so the hover was
+       a different effect rather than more of the same one. */
+    var down = u.dir === 'down';
+    var h = open ? 1 : (down ? S.rest / 100 : 0);
+
+    var ox = 50 + S.pivX / 200, oy = 50 + S.pivY / 200;
+    var cover = u.deck.querySelector('.cover');
+    var w = cover.getBoundingClientRect().width;
+    var ch = w * 1.5;                       /* the cover's own height, 2:3 */
+    var px = w * ox / 100, py = ch * oy / 100;
+    var far = w, low = ch;
+
+    /* SPACING AND GAP ARE PIXELS AT THE STUDIO'S OWN CARD, so both have to be
+       scaled to this cover or a smaller book gets a bigger fan. The studio
+       scales an image's longest side to artSize 420, so a 2:3 cover there is
+       280px wide, and 14.5 / 3 are pixels at that width.
+
+       This is why the winner looked right and the other nine did not: its
+       cover measures 288px — near enough the studio's own — while a finalist
+       is 155px, so the same 14.5px step carried its leaves nearly twice as
+       far across a card barely half the size. Same numbers, different card,
+       different effect. Rotation and the two pivots need no scaling: degrees
+       are degrees and the pivots are already fractions of the cover. */
+    var k = w / STUDIO_COVER_W;
+    var spacing = S.spacing * k, gap = S.gap * k;
+
+    u.deck.querySelectorAll('.leaf').forEach(function (leaf) {
+      var i = +leaf.dataset.i;
+      var along = cumulative(i, spacing, S.cut) * h;
+      var rot = i * S.rot * h;
+      leaf.style.transformOrigin = ox + '% ' + oy + '%';
+      leaf.style.transform = down
+        ? 'translateY(' + along.toFixed(2) + 'px) rotate(' + rot.toFixed(3) + 'deg)'
+        : 'translateX(' + along.toFixed(2) + 'px) rotate(' + rot.toFixed(3) + 'deg)';
+
+      /* how far this leaf's far corners reach, so the box grows by exactly
+         what is drawn — across, that is what pushes the text; down, it is what
+         the row has to be tall enough to show */
+      var th = rot * Math.PI / 180, c = Math.cos(th), sn = Math.sin(th);
+      [[0, 0], [w, 0], [w, ch], [0, ch]].forEach(function (pt) {
+        var dx = pt[0] - px, dy = pt[1] - py;
+        var x = px + dx * c - dy * sn, y = py + dx * sn + dy * c;
+        if (down) low = Math.max(low, along + y);
+        else far = Math.max(far, along + x);
+      });
+    });
+
+    /* the ring counts: a copy's gap is drawn outside its own box, so the room
+       the fan needs is the geometry plus one gap all round */
+    u.deck.style.setProperty('--leaf-gap', gap.toFixed(2) + 'px');
+    var reach = down ? 0 : Math.max(0, far - w + gap);
+    u.wrap.style.setProperty('--reach', reach.toFixed(1) + 'px');
+    u.book.style.setProperty('--drop', Math.max(0, low - ch + gap).toFixed(1) + 'px');
+    return reach;
+  }
+
+  function poseDeck() {
+    var biggest = 0;
+    books.forEach(function (u) {
+      poseOne(u);
+      /* the readout is about the OPEN fan, so it is read from the open pose —
+         off the resting one it was every book's 0 and the line said "reaches
+         0px past its cover" whenever nothing happened to be hovered */
+      var was = u.book.classList.contains('open');
+      if (!was) u.book.classList.add('open');
+      biggest = Math.max(biggest, poseOne(u));
+      if (!was) { u.book.classList.remove('open'); poseOne(u); }
+    });
+    var out = $('reachOut');
+    if (out) {
+      out.textContent = S.count + ' leaves, ' + (S.count * S.rot).toFixed(1) +
+        '° of turn in all. Open, the winner’s fan reaches ' +
+        Math.round(biggest) + 'px past its cover — which is how far the text moves.';
+    }
+  }
+
+  /* ======================================================================
+     THE TYPE RIFFLE
+     ====================================================================== */
+  function unriffle(root) {
+    if (!root) return;
+    root.querySelectorAll('.rfl').forEach(function (r) {
+      var word = r.querySelector('.core').textContent;
+      var host = r.parentElement;
+      r.remove();
+      host.textContent = word;
+    });
+  }
+
+  function riffleOne(host, held) {
+    var word = host.getAttribute('data-word') || (host.textContent || '').trim();
+    host.setAttribute('data-word', word);
+    host.textContent = '';
+
+    var box = document.createElement('span');
+    box.className = 'rfl' + (held ? ' rfl--tight' : '');
+    box.dataset.grp = held ? 'h' : 't';
+    box.style.letterSpacing = (S.track / 1000).toFixed(4) + 'em';
+
+    var n = held ? S.hCount : S.tCount;
+    var ds = [];
+    for (var i = 1; i <= n; i++) { ds.push(i); if (S.tSides === 'both') ds.push(-i); }
+    /* nearest on top: each card hides most of the one behind it, which is what
+       makes an open word read as slivers rather than as every copy at once */
+    ds.sort(function (a, b) { return Math.abs(b) - Math.abs(a); });
+    ds.forEach(function (d, k) {
+      var c = document.createElement('span');
+      c.className = 'copy card';
+      c.textContent = word;
+      c.dataset.d = String(d);
+      c.style.zIndex = String(10 + k);
+      c.style.fontWeight = String(weightFor(d, n));
+      c.style.textAlign = d > 0 ? 'right' : 'left';   /* ink against the revealed edge */
+      box.appendChild(c);
+    });
+
+    var core = document.createElement('span');
+    core.className = 'core card';
+    core.textContent = word;
+    core.style.fontWeight = String(weightFor(0, n));
+    box.appendChild(core);
+
+    host.appendChild(box);
+
+    /* EVERY COPY IS PINNED TO THE CENTRE'S WIDTH, and this is what made the
+       right-hand slivers come out ragged. A copy renders at its own weight and
+       a lighter cut is NARROWER, so a shrink-to-fit box ends short of where
+       the spacing put it: the left arm, revealed at its left edge, looked
+       right, and the right arm fell off by the advance difference between
+       Regular and Thin. Pinned to the core's box with the ink against the edge
+       it is revealed at, a narrow copy insets equally at both ends and the two
+       arms reach the same distance. */
+    /* THE CORE'S INK, NOT ITS CARD. getBoundingClientRect() on the core
+       returns its BORDER box, which includes the card's gap either side — so
+       every copy was given a box two gaps wider than the word, and with the
+       ink pinned to the outer edge it sat two gaps too far out. On the right
+       arm that showed as a whole extra letter standing clear of the word: the
+       stray E on TRANSLATED LITERATURE. Subtracting the padding gives the box
+       the text actually occupies. */
+    var cs = getComputedStyle(core);
+    var w = core.getBoundingClientRect().width
+          - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    if (w > 0) {
+      box.querySelectorAll('.copy').forEach(function (c) { c.style.width = w.toFixed(2) + 'px'; });
+    }
+
+    poseWord(box, held ? 1 : 0);
+    return box;
+  }
+
+  function riffleAll(root, held) {
+    unriffle(root);
+    if (root === cat || root === $('judgesHead')) { riffleOne(root, held); return; }
+    root.querySelectorAll('a[data-word]').forEach(function (a) {
+      var on = false;
+      try { on = a.matches(':hover'); } catch (e) {}
+      riffleOne(a, held || on);
+    });
+  }
+
+  function poseWord(box, h) {
+    var g = G(box);
+    var step = scaled(box, g.spacing);
+    box.style.setProperty('--gap', scaled(box, g.gap).toFixed(2) + 'px');
+    /* left-only where the column has to stay on its left edge */
+    var oneWay = box.closest('.level--sub') && S.headerMode === 'stack';
+    var reach = h * cumulative(g.count, step, g.cut);
+    box.querySelectorAll('.copy').forEach(function (c) {
+      var d = +c.dataset.d;
+      var x = cumulative(Math.abs(d), step, g.cut) * (d < 0 ? -1 : 1);
+      /* ONE TRANSFORM CARRIES BOTH the offset and the box's own growth. They
+         used to be separate — transform for the offset, `left` for the
+         padding — and `left` is not transitioned, so on hover every copy
+         jumped the width of the padding and then eased out from there. That
+         is the riffle not appearing to come from the centre. */
+      c.style.transform = 'translateX(' + ((oneWay ? 0 : reach) + h * x).toFixed(2) + 'px)';
+      c.style.opacity = h ? '1' : '0';
+    });
+    /* and the box grows by the reach, so the row opens out around the word
+       rather than the deck being drawn across whatever is next to it */
+    box.style.paddingLeft = oneWay ? '0px' : reach.toFixed(1) + 'px';
+    box.style.paddingRight = reach.toFixed(1) + 'px';
+  }
+
+  function wireHover(root) {
+    root.addEventListener('mouseenter', function (e) {
+      var a = e.target.closest && e.target.closest('a[data-word]');
+      if (!a || !root.contains(a)) return;
+      var b = a.querySelector('.rfl'); if (b) poseWord(b, 1);
+    }, true);
+    root.addEventListener('mouseleave', function (e) {
+      var a = e.target.closest && e.target.closest('a[data-word]');
+      if (!a || !root.contains(a)) return;
+      var b = a.querySelector('.rfl'); if (b) poseWord(b, 0);
+    }, true);
+  }
+
+  /* ======================================================================
+     WIRING
+     ====================================================================== */
+  var HEADER_HELP = {
+    row: 'Hovering Honorees fades the top level back and the categories arrive in a row beneath it. The burgundy grows to hold them and shrinks when they go.',
+    stack: 'The categories stack under Honorees, left-aligned with it. They go as soon as the pointer leaves the header.',
+    replace: 'The categories take the top level’s place, in the same band at the same height. The arrow goes back.'
+  };
+  var GET_HELP = {
+    hover: 'Hovering Get this book fades it back and deals the shops out beneath it.',
+    click: 'Clicking replaces Get this book with the shops. The arrow puts them away.'
+  };
+
+  function seg(id, key, after) {
+    var wrap = $(id);
+    wrap.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      wrap.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      S[key] = b.dataset.v;
+      if (after) after();
+    });
+  }
+  function slider(id, key, fmt, after) {
+    var el = $(id), out = $(id.replace(/^in/, 'v'));
+    var apply = function () {
+      S[key] = parseFloat(el.value);
+      out.textContent = fmt(S[key]);
+      if (after) after();
+    };
+    el.addEventListener('input', apply);
+    return apply;
+  }
+
+  function applyHeaderMode() {
+    page.classList.remove('mode-row', 'mode-stack', 'mode-replace');
+    page.classList.add('mode-' + S.headerMode);
+    $('stackOnly').classList.toggle('hidden', S.headerMode !== 'stack');
+    $('headerHelp').textContent = HEADER_HELP[S.headerMode];
+    subLevel.style.left = subLevel.style.top = '';
+    closeSub();
+    /* the top level riffles in row and replace and is plain in stack, so the
+       decks have to be rebuilt when the mode changes rather than only when a
+       riffle setting does */
+    applyType();
+  }
+  function applyGetMode() {
+    page.classList.remove('get-mode-hover', 'get-mode-click');
+    page.classList.add('get-mode-' + S.getMode);
+    $('getHelp').textContent = GET_HELP[S.getMode];
+    getwraps.forEach(function (w) { w.classList.remove('is-open'); });
+    sizeAllShops();
+  }
+  function applyType() {
+    /* IN STACK THE TOP LEVEL IS PLAIN. The categories hang directly off
+       Honorees there, so a deck opening out of that word pushes the column
+       they are aligned to sideways — the one thing the mode is for. */
+    if (S.headerMode === 'stack') unriffle(topLevel);
+    else riffleAll(topLevel, false);
+    riffleAll(subLevel, false);
+    /* both held-open headings, and both on the page's own black — the card
+       colour has to be what is behind the deck or it shows as a slab, which
+       is what the burgundy rectangle behind JUDGES was */
+    [cat, $('judgesHead')].forEach(function (h) {
+      riffleAll(h, true);
+      var box = h.querySelector('.rfl');
+      if (box) box.style.setProperty('--paper', 'var(--page-bg)');
+    });
+    /* rebuilding the decks is the one thing that can honestly change what the
+       top level measures, so the closed height is taken again here and the
+       band re-stated from it */
+    if (page.classList.contains('is-sub') && S.headerMode === 'stack') placeStack();
+    measureShut();
+    applyHeight();
+    /* the shop links are riffled too, so a type setting can change how much
+       room an open list wants */
+    sizeAllShops();
+  }
+  function applyMotion() {
+    var r = page.style;
+    r.setProperty('--open-ms', S.open + 'ms');
+    r.setProperty('--close-ms', S.close + 'ms');
+    r.setProperty('--fade-ms', S.fade + 'ms');
+    r.setProperty('--stagger-ms', S.stagger + 'ms');
+    r.setProperty('--ease', EASES[S.easeMode]);
+    r.setProperty('--ease-size', SIZE_EASES[S.easeMode]);
+  }
+  function applyVars() {
+    page.style.setProperty('--stack-gap', S.stackGap + 'px');
+    page.style.setProperty('--dim', (S.dim / 100).toFixed(2));
+  }
+
+  seg('headerMode', 'headerMode', applyHeaderMode);
+  seg('getMode', 'getMode', applyGetMode);
+  seg('tSides', 'tSides', applyType);
+  seg('tWeight', 'tWeight', applyType);
+  seg('easeMode', 'easeMode', applyMotion);
+
+  var sl = {};
+  var px = function (v) { return v + 'px'; };
+  var ms = function (v) { return v + 'ms'; };
+  var three = function (v) { return v.toFixed(3); };
+  sl.StackGap = slider('inStackGap', 'stackGap', px, applyVars);
+  sl.Dim      = slider('inDim', 'dim', function (v) { return v + '%'; }, applyVars);
+  sl.HCount   = slider('inHCount', 'hCount', String, applyType);
+  sl.HSpacing = slider('inHSpacing', 'hSpacing', px, applyType);
+  sl.HCut     = slider('inHCut', 'hCut', three, applyType);
+  sl.HGap     = slider('inHGap', 'hGap', px, applyType);
+  sl.TCount   = slider('inTCount', 'tCount', String, applyType);
+  sl.TSpacing = slider('inTSpacing', 'tSpacing', px, applyType);
+  sl.TCut     = slider('inTCut', 'tCut', three, applyType);
+  sl.TGap     = slider('inTGap', 'tGap', px, applyType);
+  sl.Track    = slider('inTrack', 'track', String, applyType);
+  sl.Count    = slider('inCount', 'count', String, buildDeck);
+  sl.Spacing  = slider('inSpacing', 'spacing', px, poseDeck);
+  sl.Cut      = slider('inCut', 'cut', three, poseDeck);
+  sl.Gap      = slider('inGap', 'gap', px, poseDeck);
+  sl.Rot      = slider('inRot', 'rot', function (v) { return v.toFixed(1) + '°'; }, poseDeck);
+  sl.PivX     = slider('inPivX', 'pivX', function (v) { return v + '%'; }, poseDeck);
+  sl.PivY     = slider('inPivY', 'pivY', function (v) { return v + '%'; }, poseDeck);
+  sl.Rest     = slider('inRest', 'rest', function (v) { return v + '%'; }, poseDeck);
+  sl.Open     = slider('inOpen', 'open', ms, applyMotion);
+  sl.Close    = slider('inClose', 'close', ms, applyMotion);
+  sl.Fade     = slider('inFade', 'fade', ms, applyMotion);
+  sl.Stagger  = slider('inStagger', 'stagger', ms, applyMotion);
+
+  var KEY = { StackGap:'stackGap', Dim:'dim',
+    HCount:'hCount', HSpacing:'hSpacing', HCut:'hCut', HGap:'hGap',
+    TCount:'tCount', TSpacing:'tSpacing',
+    TCut:'tCut', TGap:'tGap', Track:'track', Count:'count', Spacing:'spacing',
+    Cut:'cut', Gap:'gap', Rot:'rot', PivX:'pivX', PivY:'pivY', Rest:'rest',
+    Open:'open', Close:'close', Fade:'fade', Stagger:'stagger' };
+
+  /* THE CONTROLS ARE A DRAWER. The demo opens as the page alone; the "?" in
+     the corner brings the instrument in over it, and Escape or a second press
+     puts it away. The class lives on <body> so both the rail and the button
+     can answer to it. */
+  var uibtn = $('uibtn');
+  function showUI(on) {
+    document.body.classList.toggle('show-ui', on);
+    uibtn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    uibtn.title = on ? 'Hide the controls' : 'Show the controls';
+    uibtn.textContent = on ? '\u00d7' : '?';
+  }
+  uibtn.addEventListener('click', function () {
+    showUI(!document.body.classList.contains('show-ui'));
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') showUI(false);
+  });
+
+  $('reset').addEventListener('click', function () {
+    Object.assign(S, DEFAULTS);
+    ['headerMode','getMode','tSides','tWeight','easeMode'].forEach(function (id) {
+      $(id).querySelectorAll('button').forEach(function (b) {
+        b.classList.toggle('on', b.dataset.v === S[id]);
+      });
+    });
+    Object.keys(sl).forEach(function (k) {
+      var el = $('in' + k); if (el) el.value = S[KEY[k]];
+    });
+    Object.keys(sl).forEach(function (k) { sl[k](); });
+    applyHeaderMode(); applyGetMode(); applyType(); applyMotion(); applyVars(); buildDeck();
+  });
+
+  function sizeCover() {
+    var w = page.getBoundingClientRect().width;
+    page.style.setProperty('--cover-w', (w * 0.228).toFixed(1) + 'px');
+    page.style.setProperty('--fin-cover-w', (w * 0.123).toFixed(1) + 'px');
+    poseDeck();
+    if (page.classList.contains('is-sub') && S.headerMode === 'stack') placeStack();
+  }
+  window.addEventListener('resize', sizeCover);
+
+  fillPage();
+  collectBooks();
+  document.querySelectorAll('.getwrap').forEach(wireGet);
+  fillSub();
+  wireHover(topLevel);
+  wireHover(subLevel);
+  applyHeaderMode();
+  applyGetMode();
+  applyMotion();
+  applyVars();
+  applyType();
+  sizeCover();
+  buildDeck();
+  Object.keys(sl).forEach(function (k) { sl[k](); });
+
+  /* the webfont lands after first paint, and every deck is measured from it */
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { applyType(); poseDeck(); });
+  }
+})();
+</script>
+</body>
+</html>
