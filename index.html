@@ -41,6 +41,7 @@
 :root {
   /* the page */
   --burgundy: #3D0713;
+  --mark: #F01115;              /* the red the laurel and the lockup are set in */
   --ink: #ffffff;
   --page-bg: #000000;
 
@@ -53,6 +54,18 @@
   --fade-ms: 220ms;
   --stagger-ms: 40ms;
   --ease: cubic-bezier(.33, 0, .67, 1);
+
+  /* THE TYPE SCALE. Three sizes carry the page — body and the header nav at
+     20, the subheads at 36, the riffled Ergon headings at 48 — and a book
+     title sits one step above body so the hierarchy survives a body size this
+     large. The riffle follows the type on its own: spacing and gap are pixels
+     at the studio's 166px and are scaled by the element's own font-size, so a
+     48px heading riffles at the same proportion a 40px one did. */
+  --t-body: 20px;
+  --t-sub: 36px;
+  --t-head: 48px;
+  --t-title: 28px;
+  --t-title-sm: 24px;
   --ease-size: cubic-bezier(.33, 0, .67, 1);
   --dim: 0.45;
   --stack-gap: 12px;
@@ -200,12 +213,29 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
 .band .laurel img, .band .laurel svg { display: block; width: 100%; height: auto; }
 .band .laurel svg { fill: #F01115; }
 
+/* ---- the lockup ---------------------------------------------------------
+   Burgundy, flush under the nav so the two read as one field on load, and
+   left in the flow so it scrolls away while the nav stays put. */
+.lockup {
+  background: var(--burgundy);
+  padding: 46px 7.2% 58px;
+  display: flex; justify-content: center;
+  overflow: hidden;              /* a backstop; fitLockup keeps it inside */
+}
+.lockup__art { display: block; width: 100%; height: auto; max-width: 1180px; }
+.lockup__text {
+  font-family: var(--font-display); font-weight: 500;
+  font-size: 120px; line-height: 1;
+  text-transform: uppercase; color: var(--mark);
+  white-space: nowrap;
+}
+
 .menus { display: flex; flex-direction: column; align-items: center; position: relative; }
 
 .level { display: flex; justify-content: center; gap: 72px; list-style: none; }
 .level a {
   color: var(--ink); text-decoration: none;
-  font-family: var(--font-text); font-size: 16px;
+  font-family: var(--font-text); font-size: var(--t-body);
   letter-spacing: 0.01em; text-transform: uppercase;
   white-space: nowrap; display: inline-block;
 }
@@ -261,7 +291,7 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
 
 .backarrow {
   background: none; border: 0; padding: 0 10px 0 0; margin: 0;
-  color: var(--ink); cursor: pointer; font: inherit; font-size: 16px;
+  color: var(--ink); cursor: pointer; font: inherit; font-size: var(--t-body);
   line-height: 1; display: none;
 }
 /* NO ARROW IN REPLACE. Moving off the header is what returns the main menu,
@@ -276,14 +306,14 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
   text-align: center;
   font-family: var(--font-display);
   font-weight: 400;                  /* Ergon REGULAR — the preset's maxWeight */
-  font-size: 40px; line-height: 0.88;
+  font-size: var(--t-head); line-height: 0.88;
   text-transform: uppercase;
   margin: 0 0 58px;
 }
 
 /* "Winner" and "Finalists" are the mockup's own call rather than the site's
    heading role: sentence case, on the left margin, in the text face. */
-.rank { font-family: var(--font-text); font-weight: 400; font-size: 30px; line-height: 1; margin: 0 0 40px; }
+.rank { font-family: var(--font-text); font-weight: 400; font-size: var(--t-sub); line-height: 1; margin: 0 0 40px; }
 .finalists-head { margin-top: 96px; }
 
 .book { display: flex; align-items: flex-start; }
@@ -338,8 +368,8 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
 .book.closing .leaf { transition-duration: var(--close-ms); }
 
 .blurb { flex: 1 1 auto; min-width: 0; max-width: 34%; margin-left: 2.7%; font-family: var(--font-text); }
-.blurb p { margin: 0 0 6px; font-size: 14px; line-height: 1.5; font-family: var(--font-text); }
-.blurb .title { font-size: 24px; line-height: 1.1; margin-bottom: 12px; }
+.blurb p { margin: 0 0 9px; font-size: var(--t-body); line-height: 1.5; font-family: var(--font-text); }
+.blurb .title { font-size: var(--t-title); line-height: 1.1; margin-bottom: 14px; }
 .blurb .pub { color: #9a9a9a; }
 .blurb .bio { margin: 26px 0 0; }
 .blurb a { color: inherit; }
@@ -352,14 +382,14 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
 .finalists { display: grid; grid-template-columns: 1fr 1fr; gap: 60px 2.1%; }
 .finalists .book { --cover-w: var(--fin-cover-w); }
 .finalists .blurb { max-width: none; margin-left: 4%; }
-.finalists .title { font-size: 20px; }
+.finalists .title { font-size: var(--t-title-sm); }
 
 /* The longlist is the same row with the biography taken out — cover, title,
    author, publisher, and the link. */
 .longlist { display: grid; grid-template-columns: 1fr 1fr; gap: 50px 2.1%; }
 .longlist .book { --cover-w: var(--fin-cover-w); }
 .longlist .blurb { max-width: none; margin-left: 4%; }
-.longlist .title { font-size: 20px; }
+.longlist .title { font-size: var(--t-title-sm); }
 .longlist .getwrap { margin-top: 18px; }
 
 /* The judges: a riffled heading, centred, and a row of portraits. */
@@ -368,13 +398,13 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
 .judge img, .judge .plate {
   display: block; width: 100%; aspect-ratio: 2 / 3; background: #8a8a8a;
 }
-.judge p { font-family: var(--font-text); font-size: 14px; line-height: 1.5; margin: 14px 0 0; }
+.judge p { font-family: var(--font-text); font-size: var(--t-body); line-height: 1.5; margin: 16px 0 0; }
 .judge p + p { margin-top: 0; }
 
 .getwrap { margin-top: 30px; position: relative; }
 .getbtn {
   background: none; border: 0; padding: 0; margin: 0; color: var(--ink);
-  font: inherit; font-size: 14px; font-family: var(--font-text);
+  font: inherit; font-size: var(--t-body); font-family: var(--font-text);
   text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
   transition: opacity var(--fade-ms) var(--ease);
 }
@@ -401,14 +431,14 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
   opacity: 0; transform: translateY(-4px);
   transition: opacity var(--fade-ms) var(--ease), transform var(--fade-ms) var(--ease);
   transition-delay: calc(var(--i) * var(--stagger-ms));
-  margin-bottom: 8px; font-family: var(--font-text); font-size: 14px;
+  margin-bottom: 10px; font-family: var(--font-text); font-size: var(--t-body);
 }
 .getwrap.is-open .shops li { opacity: 1; transform: none; }
 .shops a { color: var(--ink); text-decoration: none; }
 .shops a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .shopback {
   background: none; border: 0; padding: 0 0 10px; margin: 0; color: var(--ink);
-  font: inherit; font-size: 14px; cursor: pointer; display: none;
+  font: inherit; font-size: var(--t-body); cursor: pointer; display: none;
 }
 .get-mode-click .getwrap.is-open .shopback { display: block; }
 
@@ -647,6 +677,24 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
       </div>
     </div>
 
+    <!-- THE LOCKUP BAND. Burgundy, the same burgundy as the nav, sitting
+         directly beneath it so on load the two read as one field of colour
+         and the black page begins below them both. It is NOT sticky: the nav
+         stays at the top and this scrolls away under it, which is what makes
+         the burgundy appear to shrink to the nav as you go down. -->
+    <div class="lockup" id="lockup">
+      <img id="lockupImg" class="lockup__art"
+           src="logo.svg"
+           alt="77th National Book Awards">
+      <!-- If that file is not beside the page, the lockup is set live in
+           Ergon and riffled with the demo's own machinery — which is how the
+           artwork was made in the first place. Drop the real logo.svg in and
+           it takes over with no other change. -->
+      <div id="lockupText" class="lockup__text" hidden>
+        77th National Book Awards
+      </div>
+    </div>
+
     <div class="content">
       <h2 class="category" id="category">Fiction</h2>
       <h3 class="rank">Winner</h3>
@@ -722,6 +770,55 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
   var laurel = $('laurelImg');
   laurel.addEventListener('error', function () {
     laurel.style.display = 'none'; $('laurelFallback').style.display = 'block';
+  });
+
+  /* THE LOCKUP. logo.svg beside the page if it is there; otherwise the words
+     set in Ergon and riffled with the demo's own machinery, which is how the
+     artwork was made. Drop the real file in next to index.html and it takes
+     over with nothing else to change. */
+  var lockupImg = $('lockupImg'), lockupText = $('lockupText');
+  function lockupFallback() {
+    lockupImg.style.display = 'none';
+    lockupText.hidden = false;
+    fitLockup();
+  }
+  /* FIT IT TO THE BAND. A riffled deck is wider than its word by whatever the
+     fan reaches each side, so the size that fills the band cannot be written
+     as a vw — it is measured. Two passes: scale by the ratio, re-riffle, and
+     correct the small non-linearity the second time. */
+  function fitLockup() {
+    var host = $('lockup'), cs = getComputedStyle(host);
+    var avail = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (avail <= 0) return;
+
+    /* MEASURED PLAIN, SOLVED FOR RIFFLED. The riffled box has a transition on
+       its width, so reading it back mid-change gives a number that is on its
+       way somewhere — which is why measuring it and dividing did not settle.
+       The plain word does not move, and what the riffle adds is known: the
+       deck reaches cumulative(count, spacing, cutoff) each side, in pixels at
+       the studio's 166px type, so it is a fixed multiple of the font size. */
+    unriffle(lockupText);
+    lockupText.style.fontSize = '100px';
+    var plain = lockupText.getBoundingClientRect().width / 100;   /* per px of type */
+    if (!plain) return;
+
+    var arm = cumulative(S.hCount, S.hSpacing, S.hCut) / STUDIO_TYPE;
+    var sides = S.tSides === 'both' ? 2 : 1;
+    var size = Math.max(18, Math.min(200, avail / (plain + arm * sides)));
+
+    lockupText.style.fontSize = size.toFixed(2) + 'px';
+    riffleAll(lockupText, true);
+    var box = lockupText.querySelector('.rfl');
+    if (box) box.style.setProperty('--paper', 'var(--burgundy)');
+  }
+  window.addEventListener('resize', function () { if (!lockupText.hidden) fitLockup(); });
+
+  lockupImg.addEventListener('error', lockupFallback);
+  if (lockupImg.complete && !lockupImg.naturalWidth) lockupFallback();
+  /* a file:// page with no logo.svg beside it can resolve to a zero-size
+     image rather than firing error, so the load is checked too */
+  lockupImg.addEventListener('load', function () {
+    if (!lockupImg.naturalWidth) lockupFallback();
   });
 
   /* THE STUDIO'S SPACING IS PIXELS AT ITS OWN 166px TYPE, so it has to be
@@ -1226,7 +1323,9 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
 
   function riffleAll(root, held) {
     unriffle(root);
-    if (root === cat || root === $('judgesHead')) { riffleOne(root, held); return; }
+    if (root === cat || root === $('judgesHead') || root === $('lockupText')) {
+      riffleOne(root, held); return;
+    }
     root.querySelectorAll('a[data-word]').forEach(function (a) {
       var on = false;
       try { on = a.matches(':hover'); } catch (e) {}
@@ -1338,6 +1437,8 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 
       var box = h.querySelector('.rfl');
       if (box) box.style.setProperty('--paper', 'var(--page-bg)');
     });
+    /* the lockup's paper is the burgundy it sits on, not the page's black */
+    if (!lockupText.hidden) fitLockup();
     /* rebuilding the decks is the one thing that can honestly change what the
        top level measures, so the closed height is taken again here and the
        band re-stated from it */
